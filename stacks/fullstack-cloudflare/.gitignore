@@ -1,0 +1,24 @@
+# dependencies
+node_modules/
+
+# local state and secrets (never commit these)
+.env
+.env.*
+!.env.example
+.dev.vars
+.void/
+.wrangler/
+.void-wrangler.jsonc
+*.pem
+*.key
+
+# build output
+dist/
+.output/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.tsbuildinfo

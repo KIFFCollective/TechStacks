@@ -1,0 +1,225 @@
+# FULL_STACK_CLOUDFLARE
+
+A reusable description of of KIFF's standard Full Stack Cloudflare setup.
+
+Last checked: 2026-11-05, against the versions pinned in section 3.
+
+## 1. How to use this file
+
+- The **core** (sections 2 to 7) applies to every project on this stack.
+- The **modules** (section 8) are opt-in. Delete the ones a project does not use.
+- Section 9 lists traps we already hit. Read it before the first session.
+- Project-specific facts (networks, data model, MCP tools) stay in that project's
+  `docs/SPEC.md`, not here.
+- When a project learns something that applies to every project, update the master copy
+  of this file first, then pull it into the other projects.
+
+## 2. Principles
+
+1. Simple and readable beats clever and fast. Pick the version a newcomer understands.
+2. Lego blocks: prefer what Void and Cloudflare already provide over custom code.
+3. Boring dependencies. Ask before adding any. Pin exact versions.
+4. When simplicity and correctness conflict, flag the tradeoff in a comment and in the
+   reply. Never silently pick either side.
+5. No lock-free tricks. Concurrency control is plain database status transitions
+   (conditional `UPDATE ... WHERE status = ?` and check the changed row count).
+6. One service layer. Routes, pages, and any other entry points (MCP tools, crons) are
+   thin wrappers over `server/services/*`. Business logic lives nowhere else.
+7. Never trust written-down external API facts blindly. Anything marked VERIFY is checked
+   against current official docs before it is relied on.
+8. Cheap by default: aim for the Cloudflare free tier.
+
+## 3. Core stack
+
+| Concern         | Choice                                                       | Pinned at      | Notes                                                                                      |
+| --------------- | ------------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------ |
+| Runtime         | Cloudflare Workers                                           | n/a            | Deployed to the owner's own Cloudflare account                                             |
+| App framework   | Void, native app mode (not framework mode)                   | `1.4.0`        | https://void.cloud/guide/ . Version-matched docs in `node_modules/void/docs/`              |
+| Package manager | npm                                                          | n/a            | `.npmrc` sets `save-exact=true`. No `^` or `~`                                             |
+| Toolchain       | Vite+ (`vite-plus`, `vp` CLI): Vite, Vitest, Oxlint, Oxfmt   | `1.4.0`        | `vite` is overridden to `npm:@voidzero-dev/vite-plus-core@1.4.0`                           |
+| Language        | TypeScript 7, strict                                         | `7.0.2`        | Type-checked by `vp check` (`.ts` files only, see 9.4)                                     |
+| UI              | Svelte 5 through Void pages (`@void/svelte`, `voidSvelte()`) | `5.57.2`       | Server-rendered loaders and actions first. No React, no UI kits, no client state libraries |
+| Server routes   | Void `routes/` (Hono underneath)                             | hono `4.13.13` | Handlers may return a raw `Response`                                                       |
+| Validation      | `zod`                                                        | `4.6.7`        | Env, forms, and tool inputs                                                                |
+| Database        | D1 + Drizzle via `void/db`                                   | via Void       | Migrations from `void db generate`, committed                                              |
+| Dates           | `Temporal`                                                   | native         | VERIFY runtime support per project; add a test that `Temporal.Now` is sane                 |
+| IDs             | UUID v7                                                      | n/a            | Workers only has `crypto.randomUUID()` (v4). Ask before adding a package                   |
+| Secrets         | `env.ts` + `void secret put`                                 | n/a            | Never committed, never logged                                                              |
+| Deploy          | `void deploy`                                                | n/a            | Commit `void.lock.json`. Debug deploys with `void project logs`                            |
+| Versioning      | Semantic Versioning, first release `0.1.0`                   | n/a            | Until `1.0.0`, minor versions may break things                                             |
+
+All of the above are MIT or Apache-2.0, so they are compatible with AGPL-3.0 projects.
+Check each new dependency's license before adding it.
+
+## 4. Repo layout
+
+Void conventions win where they differ.
+
+```
+void.config.ts           Worker settings (compatibility date and flags)
+vite.config.ts           Vite+ config: plugins, fmt, lint, test
+env.ts                   typed env schema
+auth.ts                  Better Auth customization (if the auth module is used)
+db/schema.ts             Drizzle schema
+db/migrations/           generated by `void db generate`, committed
+routes/                  API routes (Hono). `.well-known/` is the only dot folder Void reads
+pages/                   Svelte pages, `*.svelte` + `*.server.ts`
+crons/                   scheduled jobs (if used)
+queues/                  queue consumers (if used)
+server/
+  services/              all business logic
+  ...                    small single-purpose helpers
+client/                  browser-only helpers
+scripts/                 manual smoke scripts, never run in CI
+test/                    `*.test.ts` unit tests
+docs/                    SPEC, DECISIONS, TODO, REFERENCES, ISSUES, TECH_STACK
+docs/roadmap/            v1.md, v2.md ...
+README.md  AGENTS.md  LICENSE.md
+```
+
+## 5. Config files to copy as-is
+
+These are project-independent. Copy them from Postarella and adjust only the marked parts.
+
+| File             | What it does                                                                 | Adjust                                  |
+| ---------------- | ---------------------------------------------------------------------------- | --------------------------------------- |
+| `.npmrc`         | `save-exact=true`                                                            | nothing                                 |
+| `.editorconfig`  | UTF-8, LF, two-space indent; Markdown keeps trailing spaces                  | nothing                                 |
+| `.gitattributes` | `* text=auto eol=lf`, binaries marked, lockfile and migration meta generated | nothing                                 |
+| `.gitignore`     | ignores `.void/`, `.wrangler/`, `.void-wrangler.jsonc`, `.env*`, `dist/`     | nothing                                 |
+| `tsconfig.json`  | extends `.void/tsconfig.json`, strict, `allowImportingTsExtensions`          | `include` list                          |
+| `vite.config.ts` | Void plugins off under Vitest, type-aware lint, fmt ignores                  | `fmt.ignorePatterns`                    |
+| `void.config.ts` | compatibility date and flags                                                 | date; flags only if a module needs them |
+
+`package.json` scripts:
+
+```json
+{
+  "dev": "vp dev",
+  "build": "vp build",
+  "preview": "vp preview",
+  "check": "vp check",
+  "fix": "vp check --fix",
+  "test": "vp test run",
+  "db:generate": "void db generate",
+  "deploy": "void deploy",
+  "postinstall": "void prepare"
+}
+```
+
+`vite.config.ts` shape:
+
+```ts
+import { defineConfig } from "vite-plus";
+import { voidPlugin } from "void";
+import { voidSvelte } from "@void/svelte/plugin";
+
+// Loading the Void plugins under Vitest starts a second dev server and fails.
+const isUnitTest = process.env.VITEST === "true";
+
+export default defineConfig({
+  plugins: isUnitTest ? [] : [voidPlugin(), voidSvelte()],
+  fmt: { ignorePatterns: ["LICENSE.md", "AGENTS.md", "db/migrations/**", "dist/**"] },
+  // `vp check` type-checks .ts files only when both options are on.
+  lint: { options: { typeAware: true, typeCheck: true } },
+  test: { include: ["test/**/*.test.ts"] },
+});
+```
+
+## 6. Code style
+
+- TypeScript everywhere. Local imports use explicit `.ts` extensions (see 9.3).
+- Small functions, clear names, comments that explain why. No jokes in comments.
+- Product theming (names, playful copy) lives in UI copy and docs only. Code uses plain
+  names. Keep a vocabulary table in the SPEC mapping theme words to code names.
+- Wrap any use of an undocumented framework internal in one file with a loud error and
+  a comment linking the upstream issue (example: `server/void-auth.ts`).
+- Tests import from `vite-plus/test`. Unit tests cover plain functions; anything needing
+  the running app goes in a smoke script under `scripts/`.
+- Tests never call real third-party services by default. Mock `fetch`.
+
+## 7. Working agreement and docs system
+
+Every project carries the same doc set. The agent reads them in this order.
+
+| File                 | Role                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `AGENTS.md`          | Session rules for coding agents (copy from Postarella, change the names)                        |
+| `docs/SPEC.md`       | Stable contract: goals, non-goals, principles, stack, architecture, open decisions              |
+| `docs/roadmap/vN.md` | Milestones with checklists. M0 is a foundation spike that proves the stack end to end, deployed |
+| `docs/DECISIONS.md`  | One dated line per non-obvious choice, newest at the bottom                                     |
+| `docs/TODO.md`       | Open work flagged **[Agent]** or **[Operator]**                                                 |
+| `docs/REFERENCES.md` | Docs and upstream issues behind the spec                                                        |
+| `docs/ISSUES.md`     | Upstream bugs being tracked                                                                     |
+| `docs/TECH_STACK.md` | This file                                                                                       |
+
+Session rules (the short version of `AGENTS.md`):
+
+- One milestone per session. Do not build ahead.
+- Before writing code, restate the plan in under 10 lines and list the VERIFY items.
+- Read the version-matched Void docs before using any Void feature. If docs and SPEC
+  disagree, trust the docs and report the difference.
+- New dependency, clever optimization, or design change: stop and ask.
+- End of session: update DECISIONS, tick the checklist, update TODO, summarize.
+
+Upgrade policy: upgrade dependencies deliberately, one at a time where practical, with a
+DECISIONS entry listing what was checked (`vp check`, `vp test`, `vp build`, and the dev
+requests that matter). Remove workarounds the upgrade makes unnecessary.
+
+## 8. Optional modules
+
+### 8.1 Auth (Better Auth, configured by Void)
+
+- `auth.ts` with `defineAuth`. Native Void apps only. Spread `defaults` explicitly; Void
+  does not deep merge.
+- Plugin tables must appear in `void db generate` output.
+- Plugin versions must match the Better Auth version Void bundles (`1.7.12` at
+  Void 1.4.0; Void requires `^1.7.11`).
+- Single-owner apps: a `databaseHooks.user.create.before` hook that throws `APIError`
+  once a user exists. It covers every sign-up path. Test it.
+- Rate limits: keep the defaults, and set `rateLimit: { storage: "database" }` so all
+  Worker instances share one count. Void only rate limits deployed requests.
+- Routes that need the auth instance itself go through one wrapper around
+  `c.get("__voidAuth")` until Void ships a public accessor (void#661).
+
+### 8.2 Remote MCP server
+
+- Stateless route with the official SDK v2 (`@modelcontextprotocol/server` `2.3.1`,
+  `createMcpHandler`, default `legacy: "stateless"`). No Durable Objects.
+- OAuth: Better Auth `mcp()` plugin plus `jwt()`. Do not also add `oauthProvider()`.
+  Add `@better-auth/oauth-provider` as a direct dependency only if pages import its
+  client plugin.
+- Client registration: open DCR for now. CIMD needs an SSRF-safe fetcher that Workers
+  cannot provide yet.
+- Void only forwards `/api/auth/*`, so add `routes/.well-known/[...path].ts` to pass the
+  discovery URLs through. Issuer is `<origin>/api/auth`.
+- Derive the resource URL (token audience) from the request origin so every environment
+  works without config.
+- Needs `global_fetch_strictly_public` (see 9.1).
+- Keep a manual end-to-end script (`scripts/smoke-mcp-oauth.ts`) that walks the whole
+  OAuth flow against a running server.
+
+### 8.3 Storage, scheduling, queues
+
+- Files: R2 via `void/storage`. Never pass large files through a Worker request body.
+- Scheduling: Void `crons/` (`export const cron = "..."` + `defineScheduled`). Test with
+  the local trigger endpoint `/__void/scheduled`.
+- Queues: Void `queues/`. Void configures no dead-letter queue. Test with `/__void/queue`.
+- Reads that decide what work to do must use the D1 primary
+  (`withSession("first-primary")`), because Void turns on read replication.
+
+## 9. Known traps
+
+1. **Worker fetching its own URL returns 404.** Cloudflare routes a Worker's fetch to its
+   own workers.dev hostname to a non-existent origin. Add
+   `compatibility_flags: ["global_fetch_strictly_public"]` in `void.config.ts`.
+2. **CRLF on Windows breaks `vp check`.** Git for Windows defaults to
+   `core.autocrlf=true`. The `.gitattributes` and `.editorconfig` in section 5 fix it.
+3. **`void db generate` loads `auth.ts` with Node**, so local imports need explicit `.ts`
+   extensions and `allowImportingTsExtensions`.
+4. **`svelte-check` does not support TypeScript 7.** `.svelte` files are not type-checked.
+   Keep logic in `.ts` files so it is checked; revisit when `svelte-check` catches up.
+5. **Vitest fails with the Void plugins loaded.** Skip them when `VITEST === "true"`.
+6. **Undocumented internals** (`__voidAuth`) can change on any Void upgrade. Recheck on
+   every upgrade.
+7. **Deploy problems:** read `void project logs` before guessing.

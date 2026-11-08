@@ -1,0 +1,21 @@
+# Editor defaults for every contributor. https://editorconfig.org
+# Matches what `vp check` (the Vite+ formatter) expects: UTF-8, LF, two-space indent.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Two trailing spaces are a line break in Markdown, so keep them.
+[*.md]
+trim_trailing_whitespace = false
+
+# Leave generated migration files exactly as Drizzle wrote them.
+[db/migrations/**]
+trim_trailing_whitespace = false
+insert_final_newline = unset

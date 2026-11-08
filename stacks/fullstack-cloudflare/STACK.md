@@ -40,8 +40,8 @@ Last checked: 2026-11-05, against the versions pinned in section 3. Modules 8.5 
 | --------------- | ------------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------ |
 | Runtime         | Cloudflare Workers                                           | n/a            | Deployed to the owner's own Cloudflare account                                             |
 | App framework   | Void, native app mode (not framework mode)                   | `1.4.0`        | https://void.cloud/guide/ . Version-matched docs in `node_modules/void/docs/`              |
-| Package manager | npm (single app) or pnpm (multi-package repo, see 8.5)       | n/a            | `.npmrc` sets `save-exact=true`. No `^` or `~`                                             |
-| Toolchain       | Vite+ (`vite-plus`, `vp` CLI): Vite, Vitest, Oxlint, Oxfmt   | `1.4.0`        | `vite` is overridden to `npm:@voidzero-dev/vite-plus-core@1.4.0`                           |
+| Package manager | pnpm, for every project                                      | `12.16.1`      | Pinned by `packageManager`. `.npmrc` sets `save-exact=true`. No `^` or `~`                 |
+| Toolchain       | Vite+ (`vite-plus`, `vp` CLI): Vite, Vitest, Oxlint, Oxfmt   | `1.4.0`        | `vite` is overridden in `pnpm-workspace.yaml` to `npm:@voidzero-dev/vite-plus-core@1.4.0`  |
 | Language        | TypeScript 7, strict                                         | `7.0.2`        | Type-checked by `vp check` (`.ts` files only, see 9.4)                                     |
 | UI              | Svelte 5 through Void pages (`@void/svelte`, `voidSvelte()`) | `5.57.2`       | Server-rendered loaders and actions first. No React, no UI kits, no client state libraries |
 | Server routes   | Void `routes/` (Hono underneath)                             | hono `4.13.13` | Handlers may return a raw `Response`                                                       |
@@ -87,19 +87,46 @@ README.md  AGENTS.md  LICENSE.md
 ## 5. Config files to copy as-is
 
 These are project-independent. Copy them from Postarella and adjust only the marked parts.
+Postarella predates the switch to pnpm, so take `pnpm-workspace.yaml` and
+`.gitattributes` from this folder or from Bouncer instead.
 
-| File             | What it does                                                                 | Adjust                                  |
-| ---------------- | ---------------------------------------------------------------------------- | --------------------------------------- |
-| `.npmrc`         | `save-exact=true`                                                            | nothing                                 |
-| `.editorconfig`  | UTF-8, LF, two-space indent; Markdown keeps trailing spaces                  | nothing                                 |
-| `.gitattributes` | `* text=auto eol=lf`, binaries marked, lockfile and migration meta generated | nothing                                 |
-| `.gitignore`     | ignores `.void/`, `.wrangler/`, `.void-wrangler.jsonc`, `.env*`, `dist/`     | nothing                                 |
-| `tsconfig.json`  | extends `.void/tsconfig.json`, strict, `allowImportingTsExtensions`          | `include` list                          |
-| `vite.config.ts` | Void plugins off under Vitest, type-aware lint, fmt ignores                  | `fmt.ignorePatterns`                    |
-| `void.config.ts` | compatibility date and flags                                                 | date; flags only if a module needs them |
+| File                  | What it does                                                                 | Adjust                                  |
+| --------------------- | ---------------------------------------------------------------------------- | --------------------------------------- |
+| `.npmrc`              | `save-exact=true` (pnpm reads `.npmrc` too)                                  | nothing                                 |
+| `pnpm-workspace.yaml` | overrides, `allowBuilds`, `peerDependencyRules` (see below)                  | `packages` (multi-package repos only)   |
+| `.editorconfig`       | UTF-8, LF, two-space indent; Markdown keeps trailing spaces                  | nothing                                 |
+| `.gitattributes`      | `* text=auto eol=lf`, binaries marked, lockfile and migration meta generated | nothing                                 |
+| `.gitignore`          | ignores `.void/`, `.wrangler/`, `.void-wrangler.jsonc`, `.env*`, `dist/`     | nothing                                 |
+| `tsconfig.json`       | extends `.void/tsconfig.json`, strict, `allowImportingTsExtensions`          | `include` list                          |
+| `vite.config.ts`      | Void plugins off under Vitest, type-aware lint, fmt ignores                  | `fmt.ignorePatterns`                    |
+| `void.config.ts`      | compatibility date and flags                                                 | date; flags only if a module needs them |
 
-With pnpm, `.npmrc` still carries `save-exact=true`, and `.gitattributes` marks
-`pnpm-lock.yaml` as generated instead of `package-lock.json`.
+Every project uses pnpm, including a single app. Commit `pnpm-lock.yaml`; there is no
+`package-lock.json`.
+
+- Pin pnpm with `"packageManager": "pnpm@12.16.1"` in the root `package.json`. Node 25
+  and later have no Corepack, so install pnpm directly
+  (`npm install -g pnpm@12.16.1`; this is the only `npm` command a project needs). In
+  CI, `pnpm/action-setup` reads `packageManager`.
+- Install with `pnpm install`, add dependencies with `pnpm add <name>`, and run scripts
+  with `pnpm run <script>` (trap 9.19). CI installs with
+  `pnpm install --frozen-lockfile`.
+- `pnpm-workspace.yaml` holds the settings npm would keep in `package.json`. A single
+  app needs it too, without a `packages` list:
+  ```yaml
+  overrides:
+    vite: npm:@voidzero-dev/vite-plus-core@1.4.0
+  allowBuilds: # see trap 9.17
+    esbuild: true
+    sharp: true
+    workerd: true
+    better-sqlite3: false
+  peerDependencyRules: # the vite override is intended, so do not warn about it
+    allowedVersions:
+      vite: 1.4.0
+  ```
+  VERIFY on the first single-app project: these settings are proven in the multi-package
+  Bouncer repo (module 8.5), not yet in a single-app repo.
 
 `package.json` scripts (single app; in a multi-package repo these go in each app):
 
@@ -271,7 +298,7 @@ Source: `node_modules/void/docs/guide/sandboxes.md` and `reference/config.md` (`
 ### 8.5 Multi-package repos (pnpm workspaces)
 
 Use when one repo holds several packages, such as shared libraries plus the apps that
-use them. Use pnpm, not npm, for these repos.
+use them. The pnpm setup from section 5 applies; this module adds workspaces.
 
 Proven in the Bouncer repo on 2026-11-07 with pnpm `12.16.1`, Void `1.4.0`, Vite+
 `1.4.0`, on Windows. Copy its root files as the starting point.
@@ -288,26 +315,16 @@ Proven in the Bouncer repo on 2026-11-07 with pnpm `12.16.1`, Void `1.4.0`, Vite
 - Every workspace has its own `vite.config.ts` and its own `check`, `fix`, `test` and
   `build` scripts. Each workspace lists `vite-plus` and `typescript` as dev
   dependencies so the `vp` binary is linked there.
-- Pin pnpm with `"packageManager": "pnpm@<version>"` in the root `package.json`. Node
-  25 and later have no Corepack, so install pnpm directly (`npm install -g pnpm@<version>`).
-  In CI, `pnpm/action-setup` reads `packageManager`.
 - Internal dependencies use `workspace:*`. pnpm replaces it with the real version when
   packing or publishing.
 - Root scripts fan out: `pnpm -r run check`, `pnpm -r run test`, `pnpm -r run build`.
   pnpm runs them in dependency order. Run one workspace with
   `pnpm --filter <name> <script>`.
-- `pnpm-workspace.yaml` holds the settings npm keeps in `package.json`:
+- `pnpm-workspace.yaml` adds the workspace list to the section 5 settings:
   ```yaml
-  overrides:
-    vite: npm:@voidzero-dev/vite-plus-core@1.4.0
-  allowBuilds: # see trap 9.17
-    esbuild: true
-    sharp: true
-    workerd: true
-    better-sqlite3: false
-  peerDependencyRules: # the vite override is intended, so do not warn about it
-    allowedVersions:
-      vite: 1.4.0
+  packages:
+    - packages/*
+    - apps/*
   ```
 - App `tsconfig.json`: `"extends": ["../../tsconfig.base.json", "./.void/tsconfig.json"]`.
   The generated Void tsconfig only adds route types, so the strict settings must come
@@ -317,8 +334,7 @@ Proven in the Bouncer repo on 2026-11-07 with pnpm `12.16.1`, Void `1.4.0`, Vite
 - Void writes a `.gitignore` into each app on first run. Delete it; the root one covers it.
 - Two Void apps running at once need different dev ports and Worker inspector ports
   (trap 9.20).
-- CI installs with `pnpm install --frozen-lockfile`. Test CI changes from a fresh clone
-  first (trap 9.25).
+- Test CI changes from a fresh clone first (trap 9.25).
 
 ### 8.6 Library packages
 
@@ -412,7 +428,7 @@ repo's `docs/SPEC.md`.
     `pages/`, `queues/`, `middleware/`, `email/`), not `server/`. A `void/ai` import that
     only lives in `server/` gives "ai: Not available" at runtime. Fix: name the binding in
     `void.config.ts` with `inference: { bindings: { ai: true } }`. (Found in Spike T,
-    2026-11-08.) Related: a second `npm run dev` moves to port 5174 when an old dev
+    2026-11-08.) Related: a second `pnpm run dev` moves to port 5174 when an old dev
     server still holds 5173, so check the port before sending test requests (see 9.20).
 16. **`void project logs` and `wrangler tail` need the account when the login sees more
     than one.** `void project logs` is a live tail only (`--range` is ignored for direct
@@ -457,5 +473,4 @@ repo's `docs/SPEC.md`.
 25. **Check CI changes from a fresh clone.** Ignored folders such as `.void/` hide
     problems that only show up on a clean checkout (Bouncer `docs/ISSUES.md`). Before
     pushing a change to install or build, clone the repo to a temporary folder and run
-    `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm test` and `pnpm build` (or
-    `npm ci` and the npm scripts in a single app).
+    `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm test` and `pnpm build`.

@@ -1,13 +1,18 @@
 # FULL_STACK_CLOUDFLARE
 
-A reusable description of of KIFF's standard Full Stack Cloudflare setup.
+A reusable description of KIFF's standard Full Stack Cloudflare setup.
 
-Last checked: 2026-11-05, against the versions pinned in section 3.
+Last checked: 2026-11-05, against the versions pinned in section 3. Modules 8.5 and
+8.6 and traps 9.10 to 9.13 were checked on 2026-11-07 in the Bouncer repo, with pnpm
+`12.16.1`.
 
 ## 1. How to use this file
 
 - The **core** (sections 2 to 7) applies to every project on this stack.
 - The **modules** (section 8) are opt-in. Delete the ones a project does not use.
+- A project is either a single Void app (the default) or a multi-package repo of
+  libraries and apps (module 8.5). In a multi-package repo, the Void parts of the core
+  apply to each app, and library packages follow module 8.6 instead.
 - Section 9 lists traps we already hit. Read it before the first session.
 - Project-specific facts (networks, data model, MCP tools) stay in that project's
   `docs/SPEC.md`, not here.
@@ -35,7 +40,7 @@ Last checked: 2026-11-05, against the versions pinned in section 3.
 | --------------- | ------------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------ |
 | Runtime         | Cloudflare Workers                                           | n/a            | Deployed to the owner's own Cloudflare account                                             |
 | App framework   | Void, native app mode (not framework mode)                   | `1.4.0`        | https://void.cloud/guide/ . Version-matched docs in `node_modules/void/docs/`              |
-| Package manager | npm                                                          | n/a            | `.npmrc` sets `save-exact=true`. No `^` or `~`                                             |
+| Package manager | npm (single app) or pnpm (multi-package repo, see 8.5)       | n/a            | `.npmrc` sets `save-exact=true`. No `^` or `~`                                             |
 | Toolchain       | Vite+ (`vite-plus`, `vp` CLI): Vite, Vitest, Oxlint, Oxfmt   | `1.4.0`        | `vite` is overridden to `npm:@voidzero-dev/vite-plus-core@1.4.0`                           |
 | Language        | TypeScript 7, strict                                         | `7.0.2`        | Type-checked by `vp check` (`.ts` files only, see 9.4)                                     |
 | UI              | Svelte 5 through Void pages (`@void/svelte`, `voidSvelte()`) | `5.57.2`       | Server-rendered loaders and actions first. No React, no UI kits, no client state libraries |
@@ -53,7 +58,8 @@ Check each new dependency's license before adding it.
 
 ## 4. Repo layout
 
-Void conventions win where they differ.
+Void conventions win where they differ. This is the single app layout. A multi-package
+repo puts one of these per app under `apps/` (see 8.5).
 
 ```
 void.config.ts           Worker settings (compatibility date and flags)
@@ -92,7 +98,10 @@ These are project-independent. Copy them from Postarella and adjust only the mar
 | `vite.config.ts` | Void plugins off under Vitest, type-aware lint, fmt ignores                  | `fmt.ignorePatterns`                    |
 | `void.config.ts` | compatibility date and flags                                                 | date; flags only if a module needs them |
 
-`package.json` scripts:
+With pnpm, `.npmrc` still carries `save-exact=true`, and `.gitattributes` marks
+`pnpm-lock.yaml` as generated instead of `package-lock.json`.
+
+`package.json` scripts (single app; in a multi-package repo these go in each app):
 
 ```json
 {
@@ -162,13 +171,23 @@ requests that matter). Remove workarounds the upgrade makes unnecessary.
 
 ### 8.1 Auth (Better Auth, configured by Void)
 
+This module is for an app that owns its own users. If the app should share logins with
+other company apps, use module 8.7 instead and do not add this module.
+
 - `auth.ts` with `defineAuth`. Native Void apps only. Spread `defaults` explicitly; Void
   does not deep merge.
 - Plugin tables must appear in `void db generate` output.
 - Plugin versions must match the Better Auth version Void bundles (`1.7.12` at
   Void 1.4.0; Void requires `^1.7.11`).
-- Single-owner apps: a `databaseHooks.user.create.before` hook that throws `APIError`
-  once a user exists. It covers every sign-up path. Test it.
+- Closed sign-up (single-owner or invite-only apps): a
+  `databaseHooks.user.create.before` hook that throws `APIError` when the new user is
+  not allowed (a user already exists, or no invite matches). It covers every sign-up
+  path. Test it.
+- Do not rely on Better Auth's session cookie cache when other apps check sessions
+  against this server; a logged-out user could still pass until the cache expires.
+- VERIFY per project: extra plugins (API key, organization, OAuth provider) and
+  `advanced.crossSubDomainCookies` work through `defineAuth`. Cross-subdomain cookies
+  need a custom domain, because `workers.dev` is on the Public Suffix List.
 - Rate limits: keep the defaults, and set `rateLimit: { storage: "database" }` so all
   Worker instances share one count. Void only rate limits deployed requests.
 - Routes that need the auth instance itself go through one wrapper around
@@ -248,6 +267,104 @@ Source: `node_modules/void/docs/guide/sandboxes.md` and `reference/config.md` (`
   deployed migration steps.
 - VERIFY per project: Cloudflare Containers limits on the owner's account (concurrent
   instances, disk per instance type) and cold start time for the project's image.
+
+### 8.5 Multi-package repos (pnpm workspaces)
+
+Use when one repo holds several packages, such as shared libraries plus the apps that
+use them. Use pnpm, not npm, for these repos.
+
+Proven in the Bouncer repo on 2026-11-07 with pnpm `12.16.1`, Void `1.4.0`, Vite+
+`1.4.0`, on Windows. Copy its root files as the starting point.
+
+- Layout:
+  ```
+  pnpm-workspace.yaml    packages, overrides, allowBuilds, peerDependencyRules
+  package.json           "private": true, "packageManager", root scripts that fan out
+  tsconfig.base.json     strict settings every workspace extends
+  .npmrc                 save-exact=true
+  packages/<name>/       libraries (module 8.6)
+  apps/<name>/           Void apps, each with the section 4 layout
+  ```
+- Every workspace has its own `vite.config.ts` and its own `check`, `fix`, `test` and
+  `build` scripts. Each workspace lists `vite-plus` and `typescript` as dev
+  dependencies so the `vp` binary is linked there.
+- Pin pnpm with `"packageManager": "pnpm@<version>"` in the root `package.json`. Node
+  25 and later have no Corepack, so install pnpm directly (`npm install -g pnpm@<version>`).
+  In CI, `pnpm/action-setup` reads `packageManager`.
+- Internal dependencies use `workspace:*`. pnpm replaces it with the real version when
+  packing or publishing.
+- Root scripts fan out: `pnpm -r run check`, `pnpm -r run test`, `pnpm -r run build`.
+  pnpm runs them in dependency order. Run one workspace with
+  `pnpm --filter <name> <script>`.
+- `pnpm-workspace.yaml` holds the settings npm keeps in `package.json`:
+  ```yaml
+  overrides:
+    vite: npm:@voidzero-dev/vite-plus-core@1.4.0
+  allowBuilds: # see trap 9.10
+    esbuild: true
+    sharp: true
+    workerd: true
+    better-sqlite3: false
+  peerDependencyRules: # the vite override is intended, so do not warn about it
+    allowedVersions:
+      vite: 1.4.0
+  ```
+- App `tsconfig.json`: `"extends": ["../../tsconfig.base.json", "./.void/tsconfig.json"]`.
+  The generated Void tsconfig only adds route types, so the strict settings must come
+  from the base.
+- Each app keeps its own `void.config.ts`, `vite.config.ts`, `tsconfig.json` and
+  `void.lock.json`, and deploys from its own folder with `pnpm run deploy` (trap 9.12).
+- Void writes a `.gitignore` into each app on first run. Delete it; the root one covers it.
+- Two Void apps running at once need different dev ports and Worker inspector ports
+  (trap 9.13).
+- CI installs with `pnpm install --frozen-lockfile`.
+
+### 8.6 Library packages
+
+Use for TypeScript packages that are imported by apps rather than deployed.
+
+- No Void, no Svelte. Plain functions over web standard APIs (`Request`, `Response`,
+  `fetch`, `crypto`), so a library works in any Worker, page loader or route.
+- Same language, lint, format and test rules as the core: TypeScript 7 strict,
+  `vp check`, `vp test`, tests in `test/` importing from `vite-plus/test`.
+- Runtime dependencies are even more restricted than in apps, because every app bundles
+  them. Prefer none. A framework the library integrates with (for example `hono`) is an
+  optional `peerDependency`, never a direct one.
+- Inside the workspace, `exports` points at the `.ts` source so apps and tests need no
+  build step. For publishing, `publishConfig` swaps `exports` to built JavaScript and
+  `.d.ts` files in `dist/` (pnpm applies `publishConfig` on pack and publish). Public
+  scoped packages also need `access: "public"`. KIFF's npm scope is `@kiffcollective`.
+  Publish from CI only.
+- Build with `vp pack`, configured in `vite.config.ts` as
+  `pack: { entry: ["src/index.ts"], dts: true }`. It bundles to `dist/index.mjs` and
+  `dist/index.d.mts`, so explicit `.ts` imports disappear, and workspace dependencies
+  stay external. Check what will ship with `pnpm pack` before the first publish. pnpm
+  adds the root `LICENSE.md` to the tarball.
+- Library `tsconfig.json` extends `../../tsconfig.base.json` and includes `src`, `test`
+  and `vite.config.ts`.
+- Libraries version in lockstep with each other unless a project decides otherwise.
+
+### 8.7 Shared company auth (Bouncer kit)
+
+Planned, not yet released. Use when the app should share one login, one set of API keys
+and one role vocabulary with the company's other apps. Source and contract: the Bouncer
+repo's `docs/SPEC.md`.
+
+- The app does not add module 8.1. It has no users table, no Better Auth, and no
+  password handling. The shared auth server owns all of that.
+- Install `@kiffcollective/bouncer-kit` and `@kiffcollective/bouncer-core` (MIT).
+  Create one kit instance in a small `server/` helper with the auth server URL, issuer
+  and this app's audience.
+- Pages: call `verify(request)` in loaders and actions. Routes: use
+  `requirePermission(resource, action)`.
+- CSRF for cookie-authenticated writes is handled inside `verify()` by an Origin check.
+  Do not add a separate CSRF mechanism; list any extra allowed origins in the kit
+  config.
+- An MCP server (module 8.2) on such an app is an OAuth resource server only. It accepts
+  Bearer tokens issued by the shared auth server through `kit` and does not run its own
+  OAuth provider.
+- The app must be served on a subdomain of the shared cookie domain to receive the
+  session cookie.
 
 ## 9. Known traps
 

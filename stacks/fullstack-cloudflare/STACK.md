@@ -66,6 +66,7 @@ routes/                  API routes (Hono). `.well-known/` is the only dot folde
 pages/                   Svelte pages, `*.svelte` + `*.server.ts`
 crons/                   scheduled jobs (if used)
 queues/                  queue consumers (if used)
+container/               sandbox image: Dockerfile and its own package.json (if used)
 server/
   services/              all business logic
   ...                    small single-purpose helpers
@@ -153,15 +154,6 @@ Every project carries the same doc set. The agent reads them in this order.
 | `docs/ISSUES.md`     | Upstream bugs being tracked                                                                     |
 | `docs/TECH_STACK.md` | This file                                                                                       |
 
-Session rules (the short version of `AGENTS.md`):
-
-- One milestone per session. Do not build ahead.
-- Before writing code, restate the plan in under 10 lines and list the VERIFY items.
-- Read the version-matched Void docs before using any Void feature. If docs and SPEC
-  disagree, trust the docs and report the difference.
-- New dependency, clever optimization, or design change: stop and ask.
-- End of session: update DECISIONS, tick the checklist, update TODO, summarize.
-
 Upgrade policy: upgrade dependencies deliberately, one at a time where practical, with a
 DECISIONS entry listing what was checked (`vp check`, `vp test`, `vp build`, and the dev
 requests that matter). Remove workarounds the upgrade makes unnecessary.
@@ -208,6 +200,55 @@ requests that matter). Remove workarounds the upgrade makes unnecessary.
 - Reads that decide what work to do must use the D1 primary
   (`withSession("first-primary")`), because Void turns on read replication.
 
+### 8.4 Sandboxes (containers)
+
+Use when a project must run native binaries or long commands that a Worker cannot.
+Source: `node_modules/void/docs/guide/sandboxes.md` and `reference/config.md` (`sandbox`).
+
+- A Void Sandbox is a Cloudflare Container behind a Durable Object. Importing
+  `getSandbox` from `void/sandbox` enables it. Do not hand-write the Durable Object or
+  the container binding.
+- Cost: needs Workers Paid and Containers access. This breaks principle 8, so record it
+  in `docs/DECISIONS.md` when a project adopts the module.
+- Docker must be running for `vp dev` and for `void deploy` (the deploy builds the
+  image). CI that deploys needs Docker too.
+- `getSandbox(id, options)` does not start anything; the first command or file operation
+  does. IDs are 1 to 63 characters and each ID is its own isolated container. Use one ID
+  per unit of work when work must not share state.
+- Options: `enableInternet` (default `false`, keep it off unless needed),
+  `inactivityTimeoutMs` (default 10 minutes, maximum 6 hours), `labels`.
+- Commands are an executable plus an argument array: `sandbox.run(['tool', '--flag', x])`.
+  Never wrap user input in `['sh', '-c', ...]`.
+- Always await `run()` or `exec()` then `process.output()`. Unattended background
+  commands can stop when the sandbox goes idle. Pass `signal: AbortSignal.timeout(ms)`.
+- Move files through the Worker: stream R2 objects in with `sandbox.files.writeFile()` and
+  stream results out with `(await sandbox.files.readFile(path)).body` into
+  `storage.put()`. The sandbox then needs no network and no R2 credentials.
+- Container disk, files and processes are lost on idle stop, crash or restart. Save
+  anything that matters to D1 or R2 before returning. Call `sandbox.destroy()` in a
+  `finally` block when the work is done.
+- Limits reject with `SandboxLimitError` (extends `UsageLimit` from `void/limits`).
+  Void routes return a structured 429 when it is uncaught. In queue consumers, catch
+  it and `msg.retry({ delaySeconds })`.
+- Custom image: set `sandbox.image` (a Dockerfile path) and `sandbox.instanceType`
+  (`lite`, `standard-1` to `standard-4`; `standard-4` is 4 vCPU, 12 GiB) in
+  `void.config.ts`. One `sandbox` block per app, so one size for every sandbox.
+- Keep the image in a top-level `container/` folder with its own `package.json`,
+  outside the Void app build.
+- The image's final stage must copy the helper that matches Void's Sandbox SDK and must
+  not run a server. At Void 1.4.0:
+  ```dockerfile
+  FROM node:26.12.1-trixie-slim
+  COPY --from=docker.io/cloudflare/sandbox:1.0.2 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
+  WORKDIR /workspace
+  CMD ["sleep", "infinity"]
+  ```
+  The reference copy is `node_modules/void/sandbox.Dockerfile`. See trap 9.8.
+- Commit `void.lock.json`; the sandbox adds a Durable Object migration. Never reorder
+  deployed migration steps.
+- VERIFY per project: Cloudflare Containers limits on the owner's account (concurrent
+  instances, disk per instance type) and cold start time for the project's image.
+
 ## 9. Known traps
 
 1. **Worker fetching its own URL returns 404.** Cloudflare routes a Worker's fetch to its
@@ -222,4 +263,42 @@ requests that matter). Remove workarounds the upgrade makes unnecessary.
 5. **Vitest fails with the Void plugins loaded.** Skip them when `VITEST === "true"`.
 6. **Undocumented internals** (`__voidAuth`) can change on any Void upgrade. Recheck on
    every upgrade.
-7. **Deploy problems:** read `void project logs` before guessing.
+7. **Deploy problems:** read `void project logs` before guessing. It is a live tail
+   only, so store anything needed later (job errors, command stderr) in D1 or R2.
+8. **Sandbox shim version drift.** A custom sandbox image must copy the `sandbox-shim`
+   that matches Void's Sandbox SDK. A Void upgrade can bump that version. Compare the
+   project Dockerfile with `node_modules/void/sandbox.Dockerfile` on every upgrade.
+9. **Void queues have no dead-letter queue.** Cloudflare deletes messages that run out
+   of retries. Keep job state in D1 and sweep stuck jobs with a cron, or add a
+   dead-letter queue under `cloudflare` in `void.config.ts`.
+10. **D1 free tier limits are hard limits** (since 2026-09-01). Over 100,000 row writes
+    or 5 million row reads in a day, queries fail until midnight UTC instead of being
+    billed. Budget writes on Free, or use Workers Paid.
+11. **Void room per-connection state is `serializeAttachment()`.** `ctx.connection.setState()`
+    survives hibernation, is lost when the socket closes, and is limited to 16 KB.
+    Source: `node_modules/void/dist/runtime/ws-server.mjs` (Void 1.4.0).
+12. **No public way to reach a Void room from server code.** The runtime uses an internal
+    binding name (`void info --json` shows it). Wrap any use in one file with a loud error.
+13. **`Temporal` is missing in Node 25.** Unit tests under Vitest run on Node, so they
+    cannot rely on `Temporal` without a flag or polyfill. Check the Workers runtime
+    separately. (The Workers runtime lacks it too, as of 2026-11-08.)
+14. **Run the first `void deploy` and every `void secret` command in a separate terminal,
+    never through Claude Code's `!` mode.** These commands ask yes/no questions that `!`
+    cannot answer. An interrupted `void secret sync` can leave an empty placeholder
+    Worker with no secrets, and the first `void deploy` then fails with "Could not verify
+    existing Cloudflare Worker". Fix: delete the placeholder Worker (dashboard, or
+    `wrangler delete --name <worker> --config .void-wrangler.jsonc`), set the secrets
+    again in a real terminal, check them with `void secret list`, then deploy. Claude
+    Code's own permission rules also block it from writing secrets, which is correct.
+15. **Void infers bindings only from scanned folders** (`routes/`, `crons/`, `src/`,
+    `pages/`, `queues/`, `middleware/`, `email/`), not `server/`. A `void/ai` import that
+    only lives in `server/` gives "ai: Not available" at runtime. Fix: name the binding in
+    `void.config.ts` with `inference: { bindings: { ai: true } }`. (Found in Spike T,
+    2026-11-08.) Related: a second `npm run dev` moves to port 5174 when an old dev
+    server still holds 5173, so check the port before sending test requests.
+16. **`void project logs` and `wrangler tail` need the account when the login sees more
+    than one.** `void project logs` is a live tail only (`--range` is ignored for direct
+    Cloudflare deploys), and with two accounts it can stream nothing without an error.
+    `wrangler tail` fails with "More than one account available". Fix:
+    `CLOUDFLARE_ACCOUNT_ID=<id> npx wrangler tail <worker> --format pretty`, which shows
+    cron runs with their `console.log` lines. (Found in Spike T, 2026-11-08.)

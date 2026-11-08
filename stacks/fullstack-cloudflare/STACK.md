@@ -3,7 +3,7 @@
 A reusable description of KIFF's standard Full Stack Cloudflare setup.
 
 Last checked: 2026-11-05, against the versions pinned in section 3. Modules 8.5 and
-8.6 and traps 9.10 to 9.13 were checked on 2026-11-07 in the Bouncer repo, with pnpm
+8.6 and traps 9.17 to 9.20 were checked on 2026-11-07 in the Bouncer repo, with pnpm
 `12.16.1`.
 
 ## 1. How to use this file
@@ -177,7 +177,7 @@ other company apps, use module 8.7 instead and do not add this module.
 - `auth.ts` with `defineAuth`. Native Void apps only. Spread `defaults` explicitly; Void
   does not deep merge.
 - Plugin tables must appear in `void db generate` output.
-- Plugin versions must match the Better Auth version Void bundles (`1.7.12` at
+- Plugin versions must match the Better Auth version Void bundles (`1.7.18` at
   Void 1.4.0; Void requires `^1.7.11`).
 - Closed sign-up (single-owner or invite-only apps): a
   `databaseHooks.user.create.before` hook that throws `APIError` when the new user is
@@ -300,7 +300,7 @@ Proven in the Bouncer repo on 2026-11-07 with pnpm `12.16.1`, Void `1.4.0`, Vite
   ```yaml
   overrides:
     vite: npm:@voidzero-dev/vite-plus-core@1.4.0
-  allowBuilds: # see trap 9.10
+  allowBuilds: # see trap 9.17
     esbuild: true
     sharp: true
     workerd: true
@@ -313,11 +313,12 @@ Proven in the Bouncer repo on 2026-11-07 with pnpm `12.16.1`, Void `1.4.0`, Vite
   The generated Void tsconfig only adds route types, so the strict settings must come
   from the base.
 - Each app keeps its own `void.config.ts`, `vite.config.ts`, `tsconfig.json` and
-  `void.lock.json`, and deploys from its own folder with `pnpm run deploy` (trap 9.12).
+  `void.lock.json`, and deploys from its own folder with `pnpm run deploy` (trap 9.19).
 - Void writes a `.gitignore` into each app on first run. Delete it; the root one covers it.
 - Two Void apps running at once need different dev ports and Worker inspector ports
-  (trap 9.13).
-- CI installs with `pnpm install --frozen-lockfile`.
+  (trap 9.20).
+- CI installs with `pnpm install --frozen-lockfile`. Test CI changes from a fresh clone
+  first (trap 9.25).
 
 ### 8.6 Library packages
 
@@ -412,10 +413,49 @@ repo's `docs/SPEC.md`.
     only lives in `server/` gives "ai: Not available" at runtime. Fix: name the binding in
     `void.config.ts` with `inference: { bindings: { ai: true } }`. (Found in Spike T,
     2026-11-08.) Related: a second `npm run dev` moves to port 5174 when an old dev
-    server still holds 5173, so check the port before sending test requests.
+    server still holds 5173, so check the port before sending test requests (see 9.20).
 16. **`void project logs` and `wrangler tail` need the account when the login sees more
     than one.** `void project logs` is a live tail only (`--range` is ignored for direct
     Cloudflare deploys), and with two accounts it can stream nothing without an error.
     `wrangler tail` fails with "More than one account available". Fix:
     `CLOUDFLARE_ACCOUNT_ID=<id> npx wrangler tail <worker> --format pretty`, which shows
     cron runs with their `console.log` lines. (Found in Spike T, 2026-11-08.)
+17. **pnpm blocks dependency build scripts.** Install scripts of dependencies do not run
+    unless listed under `allowBuilds` in `pnpm-workspace.yaml` (pnpm 12). Void needs
+    `esbuild`, `sharp` and `workerd` allowed and `better-sqlite3` set to `false`. The
+    workspaces' own `postinstall` (`void prepare`) always runs. pnpm 12 also reports
+    "Agent skills awaiting approval: void"; that is optional and unrelated to builds.
+18. **pnpm's strict `node_modules`.** A package can only import what it declares. A tool
+    that relies on undeclared (hoisted) packages fails under pnpm and works under npm.
+    Fix it by declaring the dependency, not by turning on hoisting. Void 1.4.0 and
+    Vite+ 1.4.0 had no such problems.
+19. **`pnpm deploy` is a pnpm command, not your script.** It copies a workspace package
+    somewhere else. Run the app's script with `pnpm run deploy` (or `void deploy` inside
+    the app folder).
+20. **Two Void dev servers fight over ports.** Both default to dev port 5173 and Worker
+    inspector port 9229, then race for 9230, and one crashes with `EADDRINUSE`. Give
+    each app a fixed `server.port` with `strictPort: true`, and set
+    `process.env.VOID_INSPECTOR_PORT ??= "<port>"` at the top of its `vite.config.ts`.
+    That variable is undocumented in Void 1.4.0, so recheck on upgrades. Port 5173 is
+    also a common default for other tools (for example a WSL relay), so pick other ports.
+21. **A failed Void page action answers 200, not 4xx.** A `ValidationError` re-renders the
+    page with status 200 and puts the field errors in the `__VOID_PAGE_DATA__` JSON
+    (`errors`), even for a JSON request. Smoke scripts must read the errors, not the
+    status (Void 1.4.0).
+22. **Better Auth invitations need a verified email.** `listUserInvitations` refuses any
+    session whose `emailVerified` is false (`EMAIL_VERIFICATION_REQUIRED_FOR_INVITATION`),
+    with no option to turn it off (Better Auth 1.7.18). Without email sending, nothing
+    marks users verified unless the server does it (Bouncer DECISIONS, 2026-11-08).
+23. **Void dev reads only `.env`.** Variables from the shell's environment never reach the
+    dev Worker, by design (Void 1.4.0, `src/shared/dotenv.ts`). To try other values
+    locally, edit `.env` and restart `vp dev`.
+24. **`void secret put` can block the next deploy.** Each secret change creates a live
+    Worker version without Void's metadata. If `void.config.ts` leaves `workers_dev`,
+    `preview_urls` or `routes` unset, Void wants to copy them from the live version,
+    cannot, and stops with "dashboard-managed routes or visibility" before uploading
+    (Void 1.4.0). State all three under `cloudflare:` in `void.config.ts`.
+25. **Check CI changes from a fresh clone.** Ignored folders such as `.void/` hide
+    problems that only show up on a clean checkout (Bouncer `docs/ISSUES.md`). Before
+    pushing a change to install or build, clone the repo to a temporary folder and run
+    `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm test` and `pnpm build` (or
+    `npm ci` and the npm scripts in a single app).

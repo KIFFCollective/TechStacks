@@ -2,10 +2,6 @@
 
 A reusable description of KIFF's standard Full Stack Cloudflare setup.
 
-Last checked: 2026-11-05, against the versions pinned in section 3. Modules 8.5 and
-8.6 and traps 9.17 to 9.20 were checked on 2026-11-07 in the Bouncer repo, with pnpm
-`12.16.1`.
-
 ## 1. How to use this file
 
 - The **core** (sections 2 to 7) applies to every project on this stack.
@@ -23,7 +19,7 @@ Last checked: 2026-11-05, against the versions pinned in section 3. Modules 8.5 
 
 1. Simple and readable beats clever and fast. Pick the version a newcomer understands.
 2. Lego blocks: prefer what Void and Cloudflare already provide over custom code.
-3. Boring dependencies. Ask before adding any. Pin exact versions.
+3. Boring dependencies. Ask before adding any. Aim for dependencies that "think" like this stack does.
 4. When simplicity and correctness conflict, flag the tradeoff in a comment and in the
    reply. Never silently pick either side.
 5. No lock-free tricks. Concurrency control is plain database status transitions
@@ -36,11 +32,11 @@ Last checked: 2026-11-05, against the versions pinned in section 3. Modules 8.5 
 
 ## 3. Core stack
 
-| Concern         | Choice                                                       | Pinned at      | Notes                                                                                      |
+| Concern         | Choice                                                       | Minimum Version| Notes                                                                                      |
 | --------------- | ------------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------ |
 | Runtime         | Cloudflare Workers                                           | n/a            | Deployed to the owner's own Cloudflare account                                             |
 | App framework   | Void, native app mode (not framework mode)                   | `1.4.0`        | https://void.cloud/guide/ . Version-matched docs in `node_modules/void/docs/`              |
-| Package manager | pnpm, for every project                                      | `12.16.1`      | Pinned by `packageManager`. `.npmrc` sets `save-exact=true`. No `^` or `~`                 |
+| Package manager | pnpm, for every project                                      | `12.16.1`      | 
 | Toolchain       | Vite+ (`vite-plus`, `vp` CLI): Vite, Vitest, Oxlint, Oxfmt   | `1.4.0`        | `vite` is overridden in `pnpm-workspace.yaml` to `npm:@voidzero-dev/vite-plus-core@1.4.0`  |
 | Language        | TypeScript 7, strict                                         | `7.0.2`        | Type-checked by `vp check` (`.ts` files only, see 9.4)                                     |
 | UI              | Svelte 5 through Void pages (`@void/svelte`, `voidSvelte()`) | `5.57.2`       | Server-rendered loaders and actions first. No React, no UI kits, no client state libraries |
@@ -104,7 +100,7 @@ Postarella predates the switch to pnpm, so take `pnpm-workspace.yaml` and
 Every project uses pnpm, including a single app. Commit `pnpm-lock.yaml`; there is no
 `package-lock.json`.
 
-- Pin pnpm with `"packageManager": "pnpm@12.16.1"` in the root `package.json`. Node 25
+- pnpm minimum version with `"packageManager": "pnpm@12.16.1"` in the root `package.json`. Node 25
   and later have no Corepack, so install pnpm directly
   (`npm install -g pnpm@12.16.1`; this is the only `npm` command a project needs). In
   CI, `pnpm/action-setup` reads `packageManager`.
@@ -183,7 +179,7 @@ Every project carries the same doc set. The agent reads them in this order.
 | -------------------- | ----------------------------------------------------------------------------------------------- |
 | `AGENTS.md`          | Session rules for coding agents (copy from Postarella, change the names)                        |
 | `docs/SPEC.md`       | Stable contract: goals, non-goals, principles, stack, architecture, open decisions              |
-| `docs/roadmap/vN.md` | Milestones with checklists. M0 is a foundation spike that proves the stack end to end, deployed |
+| `docs/roadmap/vN.md` | Milestones with checklists. M0 is a foundation that proves the stack end to end, deployed |
 | `docs/DECISIONS.md`  | One dated line per non-obvious choice, newest at the bottom                                     |
 | `docs/TODO.md`       | Open work flagged **[Agent]** or **[Operator]**                                                 |
 | `docs/REFERENCES.md` | Docs and upstream issues behind the spec                                                        |

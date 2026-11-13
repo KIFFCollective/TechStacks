@@ -13,3 +13,23 @@ Please open an issue, if you have a proposal to improve this or help. Eventually
 ### AI
 
 Written by Humans & AI, reviewed by Humans & AI.
+
+
+## Stacks
+
+### Full Stack Cloudflare
+
+We generated this document a few days after the first release of Void dropped. 
+
+Features:
+- Void
+- Vite+ and ViTest
+- Svelte
+- TypeScript
+
+### Using
+
+As described in the disclaimer, we want to make these skills or plugins or whatever for later but right now they can be used via:
+- Copy the contents of the stack's folder to your new project
+- Add in a SPEC.md to doc/SPEC.md
+- Let your agent init the project.

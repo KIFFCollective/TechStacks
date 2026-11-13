@@ -43,7 +43,6 @@ A reusable description of KIFF's standard Full Stack Cloudflare setup.
 | Server routes   | Void `routes/` (Hono underneath)                             | hono `4.13.13` | Handlers may return a raw `Response`                                                       |
 | Validation      | `zod`                                                        | `4.6.7`        | Env, forms, and tool inputs                                                                |
 | Database        | D1 + Drizzle via `void/db`                                   | via Void       | Migrations from `void db generate`, committed                                              |
-| Dates           | `Temporal`                                                   | native         | VERIFY runtime support per project; add a test that `Temporal.Now` is sane                 |
 | IDs             | UUID v7                                                      | n/a            | Workers only has `crypto.randomUUID()` (v4). Ask before adding a package                   |
 | Secrets         | `env.ts` + `void secret put`                                 | n/a            | Never committed, never logged                                                              |
 | Deploy          | `void deploy`                                                | n/a            | Commit `void.lock.json`. Debug deploys with `void project logs`                            |
@@ -409,9 +408,6 @@ repo's `docs/SPEC.md`.
     Source: `node_modules/void/dist/runtime/ws-server.mjs` (Void 1.4.0).
 12. **No public way to reach a Void room from server code.** The runtime uses an internal
     binding name (`void info --json` shows it). Wrap any use in one file with a loud error.
-13. **`Temporal` is missing in Node 25.** Unit tests under Vitest run on Node, so they
-    cannot rely on `Temporal` without a flag or polyfill. Check the Workers runtime
-    separately. (The Workers runtime lacks it too, as of 2026-11-08.)
 14. **Run the first `void deploy` and every `void secret` command in a separate terminal,
     never through Claude Code's `!` mode.** These commands ask yes/no questions that `!`
     cannot answer. An interrupted `void secret sync` can leave an empty placeholder

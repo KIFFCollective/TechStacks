@@ -36,7 +36,7 @@ A reusable description of KIFF's standard Full Stack Cloudflare setup.
 | --------------- | ------------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------ |
 | Runtime         | Cloudflare Workers                                           | n/a            | Deployed to the owner's own Cloudflare account                                             |
 | App framework   | Void, native app mode (not framework mode)                   | `1.4.0`        | https://void.cloud/guide/ . Version-matched docs in `node_modules/void/docs/`              |
-| Package manager | pnpm, for every project                                      | `12.16.1`      | 
+| Package manager | npm for a single app; pnpm for a multi-package repo (see 5 and 8.5) | `12.16.1` (pnpm only) | `.npmrc` sets `save-exact=true`. No `^` or `~`. Settled per repo, see 5 |
 | Toolchain       | Vite+ (`vite-plus`, `vp` CLI): Vite, Vitest, Oxlint, Oxfmt   | `1.4.0`        | `vite` is overridden in `pnpm-workspace.yaml` to `npm:@voidzero-dev/vite-plus-core@1.4.0`  |
 | Language        | TypeScript 7, strict                                         | `7.0.2`        | Type-checked by `vp check` (`.ts` files only, see 9.4)                                     |
 | UI              | Svelte 5 through Void pages (`@void/svelte`, `voidSvelte()`) | `5.57.2`       | Server-rendered loaders and actions first. No React, no UI kits, no client state libraries |
@@ -44,6 +44,7 @@ A reusable description of KIFF's standard Full Stack Cloudflare setup.
 | Validation      | `zod`                                                        | `4.6.7`        | Env, forms, and tool inputs                                                                |
 | Database        | D1 + Drizzle via `void/db`                                   | via Void       | Migrations from `void db generate`, committed                                              |
 | IDs             | UUID v7                                                      | n/a            | Workers only has `crypto.randomUUID()` (v4). Ask before adding a package                   |
+| Dates           | `Temporal`                                                   | native         | VERIFY runtime support per project (missing in Node 25 and the Workers runtime, trap 9.13) |
 | Secrets         | `env.ts` + `void secret put`                                 | n/a            | Never committed, never logged                                                              |
 | Deploy          | `void deploy`                                                | n/a            | Commit `void.lock.json`. Debug deploys with `void project logs`                            |
 | Versioning      | Semantic Versioning, first release `0.1.0`                   | n/a            | Until `1.0.0`, minor versions may break things                                             |
@@ -96,8 +97,10 @@ Postarella predates the switch to pnpm, so take `pnpm-workspace.yaml` and
 | `vite.config.ts`      | Void plugins off under Vitest, type-aware lint, fmt ignores                  | `fmt.ignorePatterns`                    |
 | `void.config.ts`      | compatibility date and flags                                                 | date; flags only if a module needs them |
 
-Every project uses pnpm, including a single app. Commit `pnpm-lock.yaml`; there is no
-`package-lock.json`.
+Single-app projects use npm (Hoard, Paparazzi and TurtleCraft copies, checked against this
+file on 2026-11-26) and commit `package-lock.json`. Multi-package repos use pnpm (Bouncer,
+checked 2026-11-07) and commit `pnpm-lock.yaml`. The pnpm rules below apply to multi-package
+repos; a single app needs none of them unless it adopts pnpm.
 
 - pnpm minimum version with `"packageManager": "pnpm@12.16.1"` in the root `package.json`. Node 25
   and later have no Corepack, so install pnpm directly
@@ -408,6 +411,9 @@ repo's `docs/SPEC.md`.
     Source: `node_modules/void/dist/runtime/ws-server.mjs` (Void 1.4.0).
 12. **No public way to reach a Void room from server code.** The runtime uses an internal
     binding name (`void info --json` shows it). Wrap any use in one file with a loud error.
+13. **`Temporal` is missing in Node 25.** Unit tests under Vitest run on Node, so they
+    cannot rely on `Temporal` without a flag or polyfill. Check the Workers runtime
+    separately. (The Workers runtime lacks it too, as of 2026-11-08.)
 14. **Run the first `void deploy` and every `void secret` command in a separate terminal,
     never through Claude Code's `!` mode.** These commands ask yes/no questions that `!`
     cannot answer. An interrupted `void secret sync` can leave an empty placeholder
@@ -466,3 +472,14 @@ repo's `docs/SPEC.md`.
     problems that only show up on a clean checkout (Bouncer `docs/ISSUES.md`). Before
     pushing a change to install or build, clone the repo to a temporary folder and run
     `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm test` and `pnpm build`.
+26. **Do not `source` a `.env` file in bash.** Void's dotenv reader takes values
+    literally, but bash expands `$` in them (`$$` becomes the shell's process id), so a
+    script given those values sends a different password or token than the server reads.
+    In Node, use `process.loadEnvFile(".env")`. (Bouncer, checked 2026-11-07.)
+27. **Void `withValidator` reads JSON only.** A native HTML form post
+    (`application/x-www-form-urlencoded`) gets `400 Invalid JSON body`. Read such forms
+    with `c.req.parseBody()` and validate them yourself (Void 1.4.0).
+28. **Node's `fetch` always sends `Sec-Fetch-Mode: cors`**, and overrides a value set by
+    the script. Better Auth's OAuth provider then answers redirects with
+    `{ redirect, url }` JSON instead of a 302. Smoke scripts must accept both; browsers
+    navigating get the 302.

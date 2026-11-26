@@ -1,14 +1,14 @@
-# pnpm settings for a Full Stack Cloudflare project (STACK.md section 5).
-# A multi-package repo also lists its workspaces here (STACK.md module 8.5):
+# pnpm settings for a Full Stack Cloudflare project (docs/TECH_STACK.md section 5).
+# A multi-package repo also lists its workspaces here (docs/TECH_STACK.md module 8.5):
 # packages:
 #   - packages/*
 #   - apps/*
 
 # Vite+ replaces Vite with its own core build.
 overrides:
-  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
+  vite: npm:@voidzero-dev/vite-plus-core@latest
 
-# pnpm 12 runs dependency install scripts only when listed here (STACK.md trap 9.17).
+# pnpm runs dependency install scripts only when listed here (docs/TECH_STACK.md trap 9.16).
 allowBuilds:
   esbuild: true
   sharp: true
@@ -18,4 +18,4 @@ allowBuilds:
 # The vite override above is intended, so do not warn about the peer version.
 peerDependencyRules:
   allowedVersions:
-    vite: 1.4.0
+    vite: "*"

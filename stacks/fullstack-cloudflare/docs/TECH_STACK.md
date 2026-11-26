@@ -32,22 +32,26 @@ A reusable description of KIFF's standard Full Stack Cloudflare setup.
 
 ## 3. Core stack
 
-| Concern         | Choice                                                       | Minimum Version| Notes                                                                                      |
-| --------------- | ------------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------ |
-| Runtime         | Cloudflare Workers                                           | n/a            | Deployed to the owner's own Cloudflare account                                             |
-| App framework   | Void, native app mode (not framework mode)                   | `1.4.0`        | https://void.cloud/guide/ . Version-matched docs in `node_modules/void/docs/`              |
-| Package manager | npm for a single app; pnpm for a multi-package repo (see 5 and 8.5) | `12.16.1` (pnpm only) | `.npmrc` sets `save-exact=true`. No `^` or `~`. Settled per repo, see 5 |
-| Toolchain       | Vite+ (`vite-plus`, `vp` CLI): Vite, Vitest, Oxlint, Oxfmt   | `1.4.0`        | `vite` is overridden in `pnpm-workspace.yaml` to `npm:@voidzero-dev/vite-plus-core@1.4.0`  |
-| Language        | TypeScript 7, strict                                         | `7.0.2`        | Type-checked by `vp check` (`.ts` files only, see 9.4)                                     |
-| UI              | Svelte 5 through Void pages (`@void/svelte`, `voidSvelte()`) | `5.57.2`       | Server-rendered loaders and actions first. No React, no UI kits, no client state libraries |
-| Server routes   | Void `routes/` (Hono underneath)                             | hono `4.13.13` | Handlers may return a raw `Response`                                                       |
-| Validation      | `zod`                                                        | `4.6.7`        | Env, forms, and tool inputs                                                                |
-| Database        | D1 + Drizzle via `void/db`                                   | via Void       | Migrations from `void db generate`, committed                                              |
-| IDs             | UUID v7                                                      | n/a            | Workers only has `crypto.randomUUID()` (v4). Ask before adding a package                   |
-| Dates           | `Temporal`                                                   | native         | VERIFY runtime support per project (missing in Node 25 and the Workers runtime, trap 9.13) |
-| Secrets         | `env.ts` + `void secret put`                                 | n/a            | Never committed, never logged                                                              |
-| Deploy          | `void deploy`                                                | n/a            | Commit `void.lock.json`. Debug deploys with `void project logs`                            |
-| Versioning      | Semantic Versioning, first release `0.1.0`                   | n/a            | Until `1.0.0`, minor versions may break things                                             |
+| Concern         | Choice                                                       | Notes                                                                                      |
+| --------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| Runtime         | Cloudflare Workers                                           | Deployed to the owner's own Cloudflare account                                             |
+| App framework   | Void, native app mode (not framework mode)                   | https://void.cloud/guide/ . Version-matched docs in `node_modules/void/docs/`              |
+| Package manager | pnpm                                                         | Single apps and multi-package repos alike. Commit `pnpm-lock.yaml`. See section 5          |
+| Toolchain       | Vite+ (`vite-plus`, `vp` CLI): Vite, Vitest, Oxlint, Oxfmt   | `vite` is overridden in `pnpm-workspace.yaml` with `@voidzero-dev/vite-plus-core`          |
+| Language        | TypeScript 7, strict                                         | Type-checked by `vp check` (`.ts` files only, see 9.4)                                     |
+| UI              | Svelte 5 through Void pages (`@void/svelte`, `voidSvelte()`) | Server-rendered loaders and actions first. No React, no UI kits, no client state libraries |
+| Server routes   | Void `routes/` (Hono underneath)                             | Handlers may return a raw `Response`                                                       |
+| Validation      | `zod`                                                        | Env, forms, and tool inputs                                                                |
+| Database        | D1 + Drizzle via `void/db`                                   | Migrations from `void db generate`, committed                                              |
+| IDs             | UUID v7                                                      | Workers only has `crypto.randomUUID()` (v4). Ask before adding a package                   |
+| Secrets         | `env.ts` + `void secret put`                                 | Never committed, never logged                                                              |
+| Deploy          | `void deploy`                                                | Commit `void.lock.json`. Debug deploys with `void project logs`                            |
+| Versioning      | Semantic Versioning, first release `0.1.0`                   | Until `1.0.0`, minor versions may break things                                             |
+
+**Keep dependencies up to date.** Start a project on the latest release of every package
+and tool, and keep moving to new releases. This file names no versions on purpose: do not
+add them here, and do not treat a version found in an existing project as the one to use.
+`pnpm-lock.yaml` records what was actually installed.
 
 All of the above are MIT or Apache-2.0, so they are compatible with AGPL-3.0 projects.
 Check each new dependency's license before adding it.
@@ -88,7 +92,6 @@ Postarella predates the switch to pnpm, so take `pnpm-workspace.yaml` and
 
 | File                  | What it does                                                                 | Adjust                                  |
 | --------------------- | ---------------------------------------------------------------------------- | --------------------------------------- |
-| `.npmrc`              | `save-exact=true` (pnpm reads `.npmrc` too)                                  | nothing                                 |
 | `pnpm-workspace.yaml` | overrides, `allowBuilds`, `peerDependencyRules` (see below)                  | `packages` (multi-package repos only)   |
 | `.editorconfig`       | UTF-8, LF, two-space indent; Markdown keeps trailing spaces                  | nothing                                 |
 | `.gitattributes`      | `* text=auto eol=lf`, binaries marked, lockfile and migration meta generated | nothing                                 |
@@ -97,31 +100,29 @@ Postarella predates the switch to pnpm, so take `pnpm-workspace.yaml` and
 | `vite.config.ts`      | Void plugins off under Vitest, type-aware lint, fmt ignores                  | `fmt.ignorePatterns`                    |
 | `void.config.ts`      | compatibility date and flags                                                 | date; flags only if a module needs them |
 
-Single-app projects use npm (Hoard, Paparazzi and TurtleCraft copies, checked against this
-file on 2026-11-26) and commit `package-lock.json`. Multi-package repos use pnpm (Bouncer,
-checked 2026-11-07) and commit `pnpm-lock.yaml`. The pnpm rules below apply to multi-package
-repos; a single app needs none of them unless it adopts pnpm.
+Every project uses pnpm, single apps and multi-package repos alike, and commits
+`pnpm-lock.yaml`. Older projects on npm can stay on what works until they are upgraded.
 
-- pnpm minimum version with `"packageManager": "pnpm@12.16.1"` in the root `package.json`. Node 25
-  and later have no Corepack, so install pnpm directly
-  (`npm install -g pnpm@12.16.1`; this is the only `npm` command a project needs). In
-  CI, `pnpm/action-setup` reads `packageManager`.
-- Install with `pnpm install`, add dependencies with `pnpm add <name>`, and run scripts
-  with `pnpm run <script>` (trap 9.19). CI installs with
-  `pnpm install --frozen-lockfile`.
+- Node 25 and later have no Corepack, so install pnpm directly
+  (`npm install -g pnpm@latest`; this is the only `npm` command a project needs). Keep it
+  current with `pnpm self-update`. In CI, `pnpm/action-setup` reads the
+  `packageManager` field in the root `package.json`; update it along with pnpm.
+- Install with `pnpm install`, add dependencies with `pnpm add <name>`, update them with
+  `pnpm update --latest` (`-r` in a multi-package repo), and run scripts with
+  `pnpm run <script>` (trap 9.18). CI installs with `pnpm install --frozen-lockfile`.
 - `pnpm-workspace.yaml` holds the settings npm would keep in `package.json`. A single
   app needs it too, without a `packages` list:
   ```yaml
   overrides:
-    vite: npm:@voidzero-dev/vite-plus-core@1.4.0
-  allowBuilds: # see trap 9.17
+    vite: npm:@voidzero-dev/vite-plus-core@latest
+  allowBuilds: # see trap 9.16
     esbuild: true
     sharp: true
     workerd: true
     better-sqlite3: false
   peerDependencyRules: # the vite override is intended, so do not warn about it
     allowedVersions:
-      vite: 1.4.0
+      vite: "*"
   ```
   VERIFY on the first single-app project: these settings are proven in the multi-package
   Bouncer repo (module 8.5), not yet in a single-app repo.
@@ -188,9 +189,11 @@ Every project carries the same doc set. The agent reads them in this order.
 | `docs/ISSUES.md`     | Upstream bugs being tracked                                                                     |
 | `docs/TECH_STACK.md` | This file                                                                                       |
 
-Upgrade policy: upgrade dependencies deliberately, one at a time where practical, with a
-DECISIONS entry listing what was checked (`vp check`, `vp test`, `vp build`, and the dev
-requests that matter). Remove workarounds the upgrade makes unnecessary.
+Upgrade policy: keep dependencies up to date. Upgrade often, one at a time where
+practical, with a DECISIONS entry listing what was checked (`vp check`, `vp test`,
+`vp build`, and the dev requests that matter). Remove workarounds the upgrade makes
+unnecessary. If a new release breaks something, record why the package is held back and
+add a **[Agent]** TODO to move forward again.
 
 ## 8. Optional modules
 
@@ -202,8 +205,8 @@ other company apps, use module 8.7 instead and do not add this module.
 - `auth.ts` with `defineAuth`. Native Void apps only. Spread `defaults` explicitly; Void
   does not deep merge.
 - Plugin tables must appear in `void db generate` output.
-- Plugin versions must match the Better Auth version Void bundles (`1.7.18` at
-  Void 1.4.0; Void requires `^1.7.11`).
+- Plugin versions must match the Better Auth version Void bundles. Check it in the
+  installed packages after each upgrade.
 - Closed sign-up (single-owner or invite-only apps): a
   `databaseHooks.user.create.before` hook that throws `APIError` when the new user is
   not allowed (a user already exists, or no invite matches). It covers every sign-up
@@ -220,7 +223,7 @@ other company apps, use module 8.7 instead and do not add this module.
 
 ### 8.2 Remote MCP server
 
-- Stateless route with the official SDK v2 (`@modelcontextprotocol/server` `2.3.1`,
+- Stateless route with the official SDK v2 (`@modelcontextprotocol/server`,
   `createMcpHandler`, default `legacy: "stateless"`). No Durable Objects.
 - OAuth: Better Auth `mcp()` plugin plus `jwt()`. Do not also add `oauthProvider()`.
   Add `@better-auth/oauth-provider` as a direct dependency only if pages import its
@@ -280,14 +283,8 @@ Source: `node_modules/void/docs/guide/sandboxes.md` and `reference/config.md` (`
 - Keep the image in a top-level `container/` folder with its own `package.json`,
   outside the Void app build.
 - The image's final stage must copy the helper that matches Void's Sandbox SDK and must
-  not run a server. At Void 1.4.0:
-  ```dockerfile
-  FROM node:26.12.1-trixie-slim
-  COPY --from=docker.io/cloudflare/sandbox:1.0.2 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
-  WORKDIR /workspace
-  CMD ["sleep", "infinity"]
-  ```
-  The reference copy is `node_modules/void/sandbox.Dockerfile`. See trap 9.8.
+  not run a server. The reference copy is `node_modules/void/sandbox.Dockerfile`: take the
+  helper line from there. See trap 9.8.
 - Commit `void.lock.json`; the sandbox adds a Durable Object migration. Never reorder
   deployed migration steps.
 - VERIFY per project: Cloudflare Containers limits on the owner's account (concurrent
@@ -298,15 +295,13 @@ Source: `node_modules/void/docs/guide/sandboxes.md` and `reference/config.md` (`
 Use when one repo holds several packages, such as shared libraries plus the apps that
 use them. The pnpm setup from section 5 applies; this module adds workspaces.
 
-Proven in the Bouncer repo on 2026-11-07 with pnpm `12.16.1`, Void `1.4.0`, Vite+
-`1.4.0`, on Windows. Copy its root files as the starting point.
+Proven in the Bouncer repo on 2026-11-07, on Windows. Copy its root files as the starting point.
 
 - Layout:
   ```
   pnpm-workspace.yaml    packages, overrides, allowBuilds, peerDependencyRules
   package.json           "private": true, "packageManager", root scripts that fan out
   tsconfig.base.json     strict settings every workspace extends
-  .npmrc                 save-exact=true
   packages/<name>/       libraries (module 8.6)
   apps/<name>/           Void apps, each with the section 4 layout
   ```
@@ -328,11 +323,11 @@ Proven in the Bouncer repo on 2026-11-07 with pnpm `12.16.1`, Void `1.4.0`, Vite
   The generated Void tsconfig only adds route types, so the strict settings must come
   from the base.
 - Each app keeps its own `void.config.ts`, `vite.config.ts`, `tsconfig.json` and
-  `void.lock.json`, and deploys from its own folder with `pnpm run deploy` (trap 9.19).
+  `void.lock.json`, and deploys from its own folder with `pnpm run deploy` (trap 9.18).
 - Void writes a `.gitignore` into each app on first run. Delete it; the root one covers it.
 - Two Void apps running at once need different dev ports and Worker inspector ports
-  (trap 9.20).
-- Test CI changes from a fresh clone first (trap 9.25).
+  (trap 9.19).
+- Test CI changes from a fresh clone first (trap 9.24).
 
 ### 8.6 Library packages
 
@@ -408,13 +403,10 @@ repo's `docs/SPEC.md`.
     billed. Budget writes on Free, or use Workers Paid.
 11. **Void room per-connection state is `serializeAttachment()`.** `ctx.connection.setState()`
     survives hibernation, is lost when the socket closes, and is limited to 16 KB.
-    Source: `node_modules/void/dist/runtime/ws-server.mjs` (Void 1.4.0).
+    Source: `node_modules/void/dist/runtime/ws-server.mjs`.
 12. **No public way to reach a Void room from server code.** The runtime uses an internal
     binding name (`void info --json` shows it). Wrap any use in one file with a loud error.
-13. **`Temporal` is missing in Node 25.** Unit tests under Vitest run on Node, so they
-    cannot rely on `Temporal` without a flag or polyfill. Check the Workers runtime
-    separately. (The Workers runtime lacks it too, as of 2026-11-08.)
-14. **Run the first `void deploy` and every `void secret` command in a separate terminal,
+13. **Run the first `void deploy` and every `void secret` command in a separate terminal,
     never through Claude Code's `!` mode.** These commands ask yes/no questions that `!`
     cannot answer. An interrupted `void secret sync` can leave an empty placeholder
     Worker with no secrets, and the first `void deploy` then fails with "Could not verify
@@ -422,64 +414,64 @@ repo's `docs/SPEC.md`.
     `wrangler delete --name <worker> --config .void-wrangler.jsonc`), set the secrets
     again in a real terminal, check them with `void secret list`, then deploy. Claude
     Code's own permission rules also block it from writing secrets, which is correct.
-15. **Void infers bindings only from scanned folders** (`routes/`, `crons/`, `src/`,
+14. **Void infers bindings only from scanned folders** (`routes/`, `crons/`, `src/`,
     `pages/`, `queues/`, `middleware/`, `email/`), not `server/`. A `void/ai` import that
     only lives in `server/` gives "ai: Not available" at runtime. Fix: name the binding in
     `void.config.ts` with `inference: { bindings: { ai: true } }`. (Found in Spike T,
     2026-11-08.) Related: a second `pnpm run dev` moves to port 5174 when an old dev
-    server still holds 5173, so check the port before sending test requests (see 9.20).
-16. **`void project logs` and `wrangler tail` need the account when the login sees more
+    server still holds 5173, so check the port before sending test requests (see 9.19).
+15. **`void project logs` and `wrangler tail` need the account when the login sees more
     than one.** `void project logs` is a live tail only (`--range` is ignored for direct
     Cloudflare deploys), and with two accounts it can stream nothing without an error.
     `wrangler tail` fails with "More than one account available". Fix:
     `CLOUDFLARE_ACCOUNT_ID=<id> npx wrangler tail <worker> --format pretty`, which shows
     cron runs with their `console.log` lines. (Found in Spike T, 2026-11-08.)
-17. **pnpm blocks dependency build scripts.** Install scripts of dependencies do not run
-    unless listed under `allowBuilds` in `pnpm-workspace.yaml` (pnpm 12). Void needs
+16. **pnpm blocks dependency build scripts.** Install scripts of dependencies do not run
+    unless listed under `allowBuilds` in `pnpm-workspace.yaml`. Void needs
     `esbuild`, `sharp` and `workerd` allowed and `better-sqlite3` set to `false`. The
-    workspaces' own `postinstall` (`void prepare`) always runs. pnpm 12 also reports
+    workspaces' own `postinstall` (`void prepare`) always runs. pnpm may also report
     "Agent skills awaiting approval: void"; that is optional and unrelated to builds.
-18. **pnpm's strict `node_modules`.** A package can only import what it declares. A tool
+17. **pnpm's strict `node_modules`.** A package can only import what it declares. A tool
     that relies on undeclared (hoisted) packages fails under pnpm and works under npm.
-    Fix it by declaring the dependency, not by turning on hoisting. Void 1.4.0 and
-    Vite+ 1.4.0 had no such problems.
-19. **`pnpm deploy` is a pnpm command, not your script.** It copies a workspace package
+    Fix it by declaring the dependency, not by turning on hoisting. Void and Vite+
+    had no such problems when checked on 2026-11-07.
+18. **`pnpm deploy` is a pnpm command, not your script.** It copies a workspace package
     somewhere else. Run the app's script with `pnpm run deploy` (or `void deploy` inside
     the app folder).
-20. **Two Void dev servers fight over ports.** Both default to dev port 5173 and Worker
+19. **Two Void dev servers fight over ports.** Both default to dev port 5173 and Worker
     inspector port 9229, then race for 9230, and one crashes with `EADDRINUSE`. Give
     each app a fixed `server.port` with `strictPort: true`, and set
     `process.env.VOID_INSPECTOR_PORT ??= "<port>"` at the top of its `vite.config.ts`.
-    That variable is undocumented in Void 1.4.0, so recheck on upgrades. Port 5173 is
+    That variable is undocumented, so recheck on upgrades. Port 5173 is
     also a common default for other tools (for example a WSL relay), so pick other ports.
-21. **A failed Void page action answers 200, not 4xx.** A `ValidationError` re-renders the
+20. **A failed Void page action answers 200, not 4xx.** A `ValidationError` re-renders the
     page with status 200 and puts the field errors in the `__VOID_PAGE_DATA__` JSON
     (`errors`), even for a JSON request. Smoke scripts must read the errors, not the
-    status (Void 1.4.0).
-22. **Better Auth invitations need a verified email.** `listUserInvitations` refuses any
+    status.
+21. **Better Auth invitations need a verified email.** `listUserInvitations` refuses any
     session whose `emailVerified` is false (`EMAIL_VERIFICATION_REQUIRED_FOR_INVITATION`),
-    with no option to turn it off (Better Auth 1.7.18). Without email sending, nothing
+    with no option to turn it off. Without email sending, nothing
     marks users verified unless the server does it (Bouncer DECISIONS, 2026-11-08).
-23. **Void dev reads only `.env`.** Variables from the shell's environment never reach the
-    dev Worker, by design (Void 1.4.0, `src/shared/dotenv.ts`). To try other values
+22. **Void dev reads only `.env`.** Variables from the shell's environment never reach the
+    dev Worker, by design (Void, `src/shared/dotenv.ts`). To try other values
     locally, edit `.env` and restart `vp dev`.
-24. **`void secret put` can block the next deploy.** Each secret change creates a live
+23. **`void secret put` can block the next deploy.** Each secret change creates a live
     Worker version without Void's metadata. If `void.config.ts` leaves `workers_dev`,
     `preview_urls` or `routes` unset, Void wants to copy them from the live version,
-    cannot, and stops with "dashboard-managed routes or visibility" before uploading
-    (Void 1.4.0). State all three under `cloudflare:` in `void.config.ts`.
-25. **Check CI changes from a fresh clone.** Ignored folders such as `.void/` hide
+    cannot, and stops with "dashboard-managed routes or visibility" before uploading.
+    State all three under `cloudflare:` in `void.config.ts`.
+24. **Check CI changes from a fresh clone.** Ignored folders such as `.void/` hide
     problems that only show up on a clean checkout (Bouncer `docs/ISSUES.md`). Before
     pushing a change to install or build, clone the repo to a temporary folder and run
     `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm test` and `pnpm build`.
-26. **Do not `source` a `.env` file in bash.** Void's dotenv reader takes values
+25. **Do not `source` a `.env` file in bash.** Void's dotenv reader takes values
     literally, but bash expands `$` in them (`$$` becomes the shell's process id), so a
     script given those values sends a different password or token than the server reads.
     In Node, use `process.loadEnvFile(".env")`. (Bouncer, checked 2026-11-07.)
-27. **Void `withValidator` reads JSON only.** A native HTML form post
+26. **Void `withValidator` reads JSON only.** A native HTML form post
     (`application/x-www-form-urlencoded`) gets `400 Invalid JSON body`. Read such forms
-    with `c.req.parseBody()` and validate them yourself (Void 1.4.0).
-28. **Node's `fetch` always sends `Sec-Fetch-Mode: cors`**, and overrides a value set by
+    with `c.req.parseBody()` and validate them yourself.
+27. **Node's `fetch` always sends `Sec-Fetch-Mode: cors`**, and overrides a value set by
     the script. Better Auth's OAuth provider then answers redirects with
     `{ redirect, url }` JSON instead of a 302. Smoke scripts must accept both; browsers
     navigating get the 302.
